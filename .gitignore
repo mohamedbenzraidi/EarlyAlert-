@@ -1,0 +1,6 @@
+# Exclure un fichier
+readme.md
+readme_v_react.md
+# Exclure un dossier
+C:\Users\moham\PycharmProjects\EarlyAlert\data\processed
+C:\Users\moham\PycharmProjects\EarlyAlert\data\raw
