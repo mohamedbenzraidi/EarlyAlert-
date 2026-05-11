@@ -114,36 +114,55 @@ div[data-testid="stVerticalBlock"] > div:has(div.alert-high) {
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  MODELE (stub si pas encore entraine)
+#  MODELE — aligné backend (13 features + scaler + BahdanauAttention)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_resource
-def load_model():
-    """Charge le modele LSTM si disponible, sinon retourne None."""
+def load_ml_bundle():
+    """Retourne (model, scaler, metrics_dict). model=None si échec ou pas de TF."""
     try:
-        import tensorflow as tf
-        model_path = "models/best_model.h5"
-        if os.path.exists(model_path):
-            model = tf.keras.models.load_model(model_path)
-            return model
-    except ImportError:
-        pass
-    return None
+        from src.earlyalert_inference import (
+            load_keras_model,
+            load_scaler,
+            load_training_metrics,
+        )
 
-def predict_deterioration(sequence: np.ndarray, model=None):
+        return load_keras_model(), load_scaler(), load_training_metrics()
+    except Exception:
+        return None, None, {}
+
+
+def _attention_proxy_from_sequence(sequence: np.ndarray) -> np.ndarray:
+    """Poids d'attention visuels (le Model Keras n'expose pas la couche attention)."""
+    s = np.asarray(sequence, dtype=float)
+    if s.shape[0] < 2:
+        return np.ones(24) / 24.0
+    d = np.linalg.norm(np.diff(s, axis=0), axis=1)
+    att = np.zeros(24)
+    att[0] = d[0] if len(d) else 1.0
+    att[1:] = d
+    att = np.maximum(att, 1e-9)
+    return att / att.sum()
+
+
+def predict_deterioration(sequence: np.ndarray, model=None, scaler=None):
     """
-    Predit le score de deterioration + poids d'attention.
-    sequence : array (24, 10) — 24 timesteps x 10 features
-    Retourne : (score float, attention_weights array (24,))
+    Prédit le score de détérioration + poids d'attention (proxy).
+    sequence : (24, 10) démo UI ou (24, 13) brut aligné pipeline (voir earlyalert_inference).
     """
     if model is not None:
-        # Modele reel charge
-        seq_input = sequence[np.newaxis, ...]  # (1, 24, 10)
-        # Si le modele retourne aussi les poids d'attention :
-        # score, attention = model.predict(seq_input)
-        score = float(model.predict(seq_input)[0][0])
-        # Attention simulee si non exposee
-        attention = np.random.dirichlet(np.ones(24))
+        try:
+            from src.earlyalert_inference import predict_risk_score
+
+            score = predict_risk_score(model, sequence, scaler)
+            attention = _attention_proxy_from_sequence(sequence)
+            return score, attention
+        except Exception:
+            pass
+        seq_input = np.asarray(sequence, dtype=np.float32)[np.newaxis, ...]
+        score = float(model.predict(seq_input, verbose=0)[0][0])
+        attention = _attention_proxy_from_sequence(sequence)
+        return score, attention
     else:
         # Mode demo : simulation realiste
         # Le score est base sur les anomalies des constantes
@@ -672,8 +691,8 @@ def render_header():
 def main():
     render_header()
 
-    # ── Chargement modele ──────────────────────────────────────────────────
-    model = load_model()
+    # ── Chargement modèle + scaler (même contrat que train / preprocessing)
+    model, scaler, train_metrics = load_ml_bundle()
     if model is None:
         st.sidebar.markdown("""
         <div style="
@@ -681,8 +700,20 @@ def main():
             border-radius:6px; padding:8px 10px; margin-bottom:12px;
             font-size:11px; color:#d29922;
         ">
-            Mode demo — Modele LSTM non charge.<br>
-            Placez <code>best_model.h5</code> dans <code>models/</code>
+            Mode démo — modèle non chargé (TensorFlow ou fichiers manquants).<br>
+            Placez <code>best_model.h5</code> ou <code>final_model.h5</code> dans <code>models/</code>
+            et régénérez les données pour obtenir <code>feature_scaler.joblib</code>.
+        </div>
+        """, unsafe_allow_html=True)
+    elif scaler is None:
+        st.sidebar.markdown("""
+        <div style="
+            background:#272012; border:1px solid #d29922;
+            border-radius:6px; padding:8px 10px; margin-bottom:12px;
+            font-size:11px; color:#d29922;
+        ">
+            Modèle chargé sans <code>data/processed/feature_scaler.joblib</code>.<br>
+            Relancez <code>prepare_data</code> : les prédictions peuvent être biaisées.
         </div>
         """, unsafe_allow_html=True)
 
@@ -750,7 +781,7 @@ def main():
         """, unsafe_allow_html=True)
 
         uploaded_file = st.file_uploader(
-            "CSV (24 lignes x 10 colonnes)",
+            "CSV 24×10 (démo UI) ou 24×13 (pipeline brut, ordre MIMIC)",
             type=["csv"],
             label_visibility="collapsed"
         )
@@ -758,11 +789,18 @@ def main():
         if uploaded_file is not None:
             try:
                 df_up = pd.read_csv(uploaded_file, header=None)
-                if df_up.shape[0] >= 24 and df_up.shape[1] >= 10:
-                    sequence = df_up.iloc[:24, :10].values.astype(float)
-                    st.success(f"Fichier charge : {df_up.shape[0]} lignes x {df_up.shape[1]} colonnes")
+                ncols = df_up.shape[1]
+                if df_up.shape[0] >= 24 and ncols in (10, 13):
+                    sequence = df_up.iloc[:24, :ncols].values.astype(float)
+                    st.success(
+                        f"Fichier chargé : 24×{ncols} (aligné backend "
+                        f"{'démo' if ncols == 10 else 'HR,SBP,DBP,SpO2,Temp,Resp,Cr,Lac,WBC,SI,ΔHR,ΔSpO2,HR_var'})"
+                    )
                 else:
-                    st.warning(f"Format attendu : 24x10. Recu : {df_up.shape[0]}x{df_up.shape[1]}")
+                    st.warning(
+                        f"Format attendu : au moins 24 lignes et 10 ou 13 colonnes. "
+                        f"Reçu : {df_up.shape[0]}×{df_up.shape[1]}"
+                    )
             except Exception as e:
                 st.error(f"Erreur lecture : {e}")
 
@@ -774,7 +812,19 @@ def main():
             Metriques modele
         </div>
         """, unsafe_allow_html=True)
-        metrics = [("AUC-ROC", "0.91"), ("Recall", "0.87"), ("F1-Score", "0.85"), ("Params", "180k")]
+        auc_d = train_metrics.get("test_auc")
+        acc_opt = train_metrics.get("test_accuracy_seuil_optimal")
+        acc_d = acc_opt if acc_opt is not None else train_metrics.get("test_accuracy")
+        acc_05 = train_metrics.get("test_accuracy_seuil_0.5")
+        loss_d = train_metrics.get("test_loss")
+        tau = train_metrics.get("decision_threshold")
+        metrics = [
+            ("AUC test", f"{auc_d:.3f}" if auc_d is not None else "—"),
+            ("Acc test (τ optimal)", f"{acc_d:.3f}" if acc_d is not None else "—"),
+            ("Acc test @ 0.5", f"{acc_05:.3f}" if acc_05 is not None else "—"),
+            ("Seuil τ", f"{tau:.3f}" if tau is not None else "—"),
+            ("Loss", f"{loss_d:.3f}" if loss_d is not None else "—"),
+        ]
         for k, v in metrics:
             st.markdown(f"""
             <div style="display:flex; justify-content:space-between;
@@ -786,7 +836,7 @@ def main():
             """, unsafe_allow_html=True)
 
     # ── PREDICTION ─────────────────────────────────────────────────────────
-    score, attention = predict_deterioration(sequence, model)
+    score, attention = predict_deterioration(sequence, model, scaler)
 
     # Historique score (simulation)
     base_hist = [score * (0.5 + i * 0.07) for i in range(8)]
@@ -976,22 +1026,31 @@ def main():
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── FOOTER ─────────────────────────────────────────────────────────────
-    st.markdown("""
+    _fa = f"{train_metrics['test_auc']:.3f}" if train_metrics.get("test_auc") is not None else "—"
+    _acc_show = train_metrics.get("test_accuracy_seuil_optimal")
+    if _acc_show is None:
+        _acc_show = train_metrics.get("test_accuracy")
+    _fb = f"{_acc_show:.3f}" if _acc_show is not None else "—"
+    _fc = f"{train_metrics['test_loss']:.3f}" if train_metrics.get("test_loss") is not None else "—"
+    st.markdown(
+        f"""
     <div style="
         border-top:1px solid #e2e6ea; background:white;
         padding:8px 24px; margin-top:16px;
         display:flex; align-items:center; justify-content:space-between;
         font-size:10px; color:#8a9ab0;
     ">
-        <span>EarlyAlert v1.0 — LSTM Bidirectionnel + Attention de Bahdanau — MIMIC-IV (300k+ sejours)</span>
+        <span>EarlyAlert v1.0 — LSTM Bidirectionnel + Attention de Bahdanau — MIMIC-IV (300k+ séjours)</span>
         <div style="display:flex; gap:16px;">
-            <span>AUC-ROC : 0.91</span>
-            <span>Recall : 0.87</span>
-            <span>F1 : 0.85</span>
-            <span>Params : 180k</span>
+            <span>AUC test : {_fa}</span>
+            <span>Acc test : {_fb}</span>
+            <span>Loss test : {_fc}</span>
+            <span>Params : ~180k</span>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":

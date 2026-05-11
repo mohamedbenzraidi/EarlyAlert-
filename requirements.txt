@@ -1,0 +1,39 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# EarlyAlert — Système de détection précoce de détérioration en réanimation
+# LSTM Bidirectionnel + Attention de Bahdanau — MIMIC-IV
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ DEEP LEARNING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+tensorflow==2.13.0          # Framework Deep Learning (LSTM, Keras)
+keras==2.13.0               # API Keras (modèles, couches)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ DATA & ML CLASSIQUE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+pandas==2.0.3               # Manipulation de données
+numpy==1.24.3               # Opérations numériques
+scikit-learn==1.3.0         # Preprocessing, métriques, split, baselines
+scipy==1.11.2               # Calculs scientifiques
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ VISUALIZATION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+matplotlib==3.7.2           # Graphiques statiques (ROC, histogrammes)
+seaborn==0.12.2             # Graphiques esthétiques
+plotly==5.15.0              # Graphiques interactifs (Streamlit)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ INTERFACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+streamlit==1.25.0           # Dashboard web temps réel
+streamlit-plotly-events==0.0.6  # Événements Plotly dans Streamlit
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ METRICS & EVALUATION ━━━━━━━━━━━━━━━━━━━━━━━━━━
+torchmetrics==0.11.4        # Métriques F1-Score avancées
+python-dotenv==1.0.0        # Gestion des variables d'environnement
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━ UTILITAIRES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+tqdm==4.66.1                # Barres de progression
+jupyter==1.0.0              # Notebooks interactifs
+ipython==8.14.0             # Console Python améliorée
+
+# ═════════════════════════════════════════════════════════════════════════════
+# OPTIONNEL — GPU CUDA (décommenter si vous avez NVIDIA CUDA)
+# ═════════════════════════════════════════════════════════════════════════════
+# tensorflow[and-cuda]==2.13.0  # TensorFlow avec support GPU CUDA
+# jax==0.4.14                   # Alternative GPU (optionnel)
+

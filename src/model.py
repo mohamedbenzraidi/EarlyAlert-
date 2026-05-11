@@ -1,34 +1,62 @@
-from tensorflow.keras.layers import Input, Bidirectional, LSTM,Dense,Dropout, LayerNormalization
+import tensorflow as tf
+from tensorflow.keras.layers import (
+    Input,
+    Bidirectional,
+    LSTM,
+    Dense,
+    Dropout,
+    LayerNormalization,
+    GaussianNoise,
+)
 from tensorflow.keras.models import Model
 
 from src.Bahdanau import BahdanauAttention
 
+_l2 = tf.keras.regularizers.l2(2e-4)
+_reg_lstm = tf.keras.regularizers.l2(5e-6)
+
 
 def buid_model(input_shape):
     inputs = Input(shape=input_shape)
+    # Bruit léger en entraînement seulement — réduit le sur-apprentissage sur le train
+    x = GaussianNoise(0.02)(inputs)
 
-    #BiLSTM1
-    x = Bidirectional(LSTM(64, return_sequences=True))(inputs)
+    # Capacité réduite (train AUC ~1 / val AUC ~0.45 → modèle trop riche)
+    x = Bidirectional(
+        LSTM(
+            36,
+            return_sequences=True,
+            kernel_regularizer=_reg_lstm,
+            recurrent_dropout=0.12,
+        )
+    )(x)
     x = LayerNormalization()(x)
-    x = Dropout(0.3)(x)
+    x = Dropout(0.5)(x)
 
-    #BiLSTM2
-    x = Bidirectional(LSTM(32, return_sequences=True))(x)
-    x = Dropout(0.3)(x)
+    # x = Bidirectional(
+    #     LSTM(
+    #         20,
+    #         return_sequences=True,
+    #         kernel_regularizer=_reg_lstm,
+    #         recurrent_dropout=0.12,
+    #     )
+    # )(x)
+    # x = Dropout(0.55)(x)
 
-    #Attention
-    attention = BahdanauAttention(32)
-    context_vector, attention_weights = attention(x)
+    # attention = BahdanauAttention(24)
+    # try:
+    #     context_vector, attention_weights = attention(x, x)
+    # except TypeError:
+    #     context_vector, attention_weights = attention([x, x])
 
-    #dense layers
-    x = Dense(64,activation="relu")(context_vector)
-    x = Dropout(0.3)(x)
+    x = Dense(40, activation="relu", kernel_regularizer=_l2)(x)
+    x = Dropout(0.5)(x)
 
-    x = Dense(32,activation="relu")(x)
+    # x = Dense(20, activation="relu", kernel_regularizer=_l2)(x)
+    # x = Dropout(0.45)(x)
 
-    outputs = Dense(1, activation="sigmoid")(x)
+    # outputs = Dense(1, activation="sigmoid")(x)
 
-    #model
-    model = Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=inputs, outputs=x)
 
     return model
