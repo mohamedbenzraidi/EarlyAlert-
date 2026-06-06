@@ -1,0 +1,6 @@
+# Exclure des fichiers
+readme.md
+readme_v_react.md
+
+# Exclure des dossiers
+data/
